@@ -1,0 +1,15 @@
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints/
+
+# IDE Configuration
+.gemini/
+.agents/
+.vscode/
+.idea/
+
+# Local Data Cache (Optional, uncomment if dataset becomes very large)
+# python/data/*.csv

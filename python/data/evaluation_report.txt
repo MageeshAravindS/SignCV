@@ -1,0 +1,14 @@
+SignCV Model Evaluation Metrics
+========================================
+
+              precision    recall  f1-score   support
+
+           A       1.00      1.00      1.00        24
+           B       1.00      1.00      1.00        24
+           C       1.00      1.00      1.00        24
+           L       1.00      1.00      1.00        24
+           Y       1.00      1.00      1.00        24
+
+    accuracy                           1.00       120
+   macro avg       1.00      1.00      1.00       120
+weighted avg       1.00      1.00      1.00       120

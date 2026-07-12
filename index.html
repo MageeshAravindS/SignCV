@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Real-Time Sign Language Recognition System</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+  
+  <!-- MediaPipe Hands CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  
+  <!-- TensorFlow.js CDN for Browser MLP Training -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest" crossorigin="anonymous"></script>
+  
+  <!-- Application Logic -->
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-logo">
+        <span class="logo-icon">👋</span>
+        <div class="logo-text">
+          <h1>SignCV</h1>
+          <p>Real-Time Sign Language Recognition</p>
+        </div>
+      </div>
+      <div class="system-status">
+        <div class="status-indicator">
+          <span class="dot live-pulse"></span>
+          <span class="status-text" id="engine-status">Initializing Hands Engine...</span>
+        </div>
+        <div class="fps-pill">
+          <span class="fps-label">FPS:</span>
+          <span class="fps-value" id="fps-counter">00</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="app-workspace">
+      <!-- Left Panel: Webcam Feed & Live Predictions -->
+      <section class="viewport-panel glass-card">
+        <div class="panel-header">
+          <h2>Webcam Viewfinder</h2>
+          <div class="hand-indicator-group">
+            <span class="hand-pill" id="left-hand-pill">Left Hand</span>
+            <span class="hand-pill" id="right-hand-pill">Right Hand</span>
+          </div>
+        </div>
+
+        <div class="video-container">
+          <!-- Hidden video element for MediaPipe input -->
+          <video id="webcam" autoplay playsinline style="display: none;"></video>
+          <canvas id="output-canvas"></canvas>
+          
+          <!-- Viewport overlays -->
+          <div class="calibration-overlay" id="calibration-box">
+            <div class="corner top-left"></div>
+            <div class="corner top-right"></div>
+            <div class="corner bottom-left"></div>
+            <div class="corner bottom-right"></div>
+            <span class="overlay-text">Position Hand Here</span>
+          </div>
+          
+          <div class="loading-overlay" id="loading-spinner">
+            <div class="spinner"></div>
+            <p>Starting Camera & ML Engine...</p>
+          </div>
+        </div>
+
+        <!-- Live Prediction Displays -->
+        <div class="prediction-hud">
+          <div class="prediction-box primary-pred">
+            <span class="hud-label">Gesture Prediction</span>
+            <span class="hud-value" id="predicted-letter">-</span>
+          </div>
+          <div class="prediction-box confidence-pred">
+            <span class="hud-label">Confidence</span>
+            <div class="progress-bar-container">
+              <div class="progress-bar" id="confidence-bar" style="width: 0%"></div>
+            </div>
+            <span class="hud-value-small" id="predicted-confidence">0%</span>
+          </div>
+          <div class="prediction-box latency-pred">
+            <span class="hud-label">Inference Latency</span>
+            <span class="hud-value" id="latency-counter">0 ms</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Panel: Controls, Tabs, Sentence Builder -->
+      <section class="control-panel">
+        <!-- Tabs Navigation -->
+        <div class="tab-nav glass-card">
+          <button class="tab-btn active" data-tab="recognition-tab">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg>
+            Live Recognition
+          </button>
+          <button class="tab-btn" data-tab="trainer-tab">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+            Custom Trainer
+          </button>
+          <button class="tab-btn" data-tab="stats-tab">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            Insights & Data
+          </button>
+        </div>
+
+        <!-- Tab Content: Live Recognition -->
+        <div class="tab-content active glass-card" id="recognition-tab">
+          <h3>Recognition Controls</h3>
+          <div class="control-grid">
+            <div class="control-item">
+              <label for="model-selector">Classification Model</label>
+              <select id="model-selector" class="custom-select">
+                <option value="similarity">Built-in Geometric Engine (ASL A-Z, 0-9)</option>
+                <option value="custom" disabled id="custom-model-option">TensorFlow.js Custom MLP (Not trained)</option>
+              </select>
+            </div>
+            
+            <div class="control-item">
+              <label for="confidence-threshold">Confidence Threshold (<span id="threshold-val">0.70</span>)</label>
+              <input type="range" id="confidence-threshold" min="0.40" max="0.95" step="0.05" value="0.70" class="custom-slider">
+            </div>
+
+            <div class="control-item">
+              <label class="toggle-container">
+                <input type="checkbox" id="smoothing-toggle" checked>
+                <span class="toggle-slider"></span>
+                <span class="toggle-label">Temporal Smoothing (Prediction Queue)</span>
+              </label>
+            </div>
+
+            <div class="control-item">
+              <label class="toggle-container">
+                <input type="checkbox" id="tts-toggle">
+                <span class="toggle-slider"></span>
+                <span class="toggle-label">Auto Text-to-Speech (On word match)</span>
+              </label>
+            </div>
+
+            <div class="control-item">
+              <label class="toggle-container">
+                <input type="checkbox" id="autospace-toggle" checked>
+                <span class="toggle-slider"></span>
+                <span class="toggle-label">Auto Spacing (Delay-based)</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="gesture-reference-list">
+            <h4>Supported Quick ASL Symbols</h4>
+            <div class="gesture-pill-container">
+              <span class="g-pill">A</span><span class="g-pill">B</span><span class="g-pill">C</span><span class="g-pill">D</span>
+              <span class="g-pill">E</span><span class="g-pill">F</span><span class="g-pill">G</span><span class="g-pill">H</span>
+              <span class="g-pill">I</span><span class="g-pill">K</span><span class="g-pill">L</span><span class="g-pill">M</span>
+              <span class="g-pill">N</span><span class="g-pill">O</span><span class="g-pill">P</span><span class="g-pill">Q</span>
+              <span class="g-pill">R</span><span class="g-pill">S</span><span class="g-pill">T</span><span class="g-pill">U</span>
+              <span class="g-pill">V</span><span class="g-pill">W</span><span class="g-pill">X</span><span class="g-pill">Y</span>
+              <span class="g-pill">1</span><span class="g-pill">2</span><span class="g-pill">3</span><span class="g-pill">4</span>
+              <span class="g-pill">5</span><span class="g-pill">6</span><span class="g-pill">7</span><span class="g-pill">8</span>
+              <span class="g-pill">9</span>
+            </div>
+            <p class="reference-note">*Note: Gestures J & Z require motion tracking and are supported via custom models/training.*</p>
+          </div>
+        </div>
+
+        <!-- Tab Content: Custom Trainer -->
+        <div class="tab-content glass-card" id="trainer-tab">
+          <h3>Custom Gesture Trainer (In-Browser MLP)</h3>
+          <p class="description-para">Record coordinates of custom gestures (e.g. "Hello", "Yes", "No") and train a lightweight Multi-Layer Perceptron model on the fly!</p>
+
+          <div class="trainer-setup">
+            <div class="control-item">
+              <label for="new-gesture-name">Gesture Label Name</label>
+              <div class="input-group">
+                <input type="text" id="new-gesture-name" placeholder="e.g. HELLO" class="custom-input">
+                <button id="add-gesture-btn" class="btn btn-secondary">Add Label</button>
+              </div>
+            </div>
+
+            <div class="gesture-list-box">
+              <h4>Active Training Labels</h4>
+              <ul id="gesture-labels-ul" class="labels-list">
+                <!-- Dynamically populated labels -->
+                <li class="empty-list-note">No custom labels added yet. Add one above!</li>
+              </ul>
+            </div>
+
+            <div class="recorder-panel" id="recorder-panel" style="display: none;">
+              <div class="recorder-hud">
+                <div class="recording-status">
+                  <span id="recording-active-label">Selected: -</span>
+                  <span class="sample-count-indicator">Samples: <strong id="recorded-samples-count">0</strong></span>
+                </div>
+                <div class="recorder-controls">
+                  <button id="record-btn" class="btn btn-record">Hold to Record Samples</button>
+                  <button id="clear-samples-btn" class="btn btn-danger-outline">Clear Samples</button>
+                </div>
+                <p class="recording-hint">Perform the hand pose from slightly different angles/distances while holding the record button. Minimum 30 samples recommended.</p>
+              </div>
+            </div>
+
+            <div class="model-training-panel">
+              <h4>Training Execution</h4>
+              <div class="training-metrics-hud">
+                <div>Status: <strong id="training-status-text">Ready</strong></div>
+                <div>Epoch: <strong id="training-epoch-text">0/50</strong></div>
+                <div>Loss: <strong id="training-loss-text">0.0000</strong></div>
+              </div>
+              <div style="display: flex; gap: 10px; width: 100%;">
+                <button id="train-model-btn" class="btn btn-primary" disabled style="flex: 1.5;">Train Neural Network (MLP)</button>
+                <button id="export-model-btn" class="btn btn-secondary" disabled style="flex: 1;">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Export
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab Content: Insights & Performance -->
+        <div class="tab-content glass-card" id="stats-tab">
+          <h3>Insights & Performance Stats</h3>
+          
+          <div class="insights-grid">
+            <div class="insight-stat-card">
+              <h4>Hand Coordinate Inspector</h4>
+              <div class="coordinate-list" id="coord-inspector">
+                <p class="empty-list-note">Show coordinates by placing your hand in front of the camera.</p>
+              </div>
+            </div>
+
+            <div class="insight-stat-card">
+              <h4>Model Configuration Info</h4>
+              <table class="info-table">
+                <tr>
+                  <td>MediaPipe Hands Version</td>
+                  <td>v0.10.0</td>
+                </tr>
+                <tr>
+                  <td>Classifier Input Dimensions</td>
+                  <td>63 (21 landmarks × 3 coords)</td>
+                </tr>
+                <tr>
+                  <td>Normalization Mode</td>
+                  <td>Wrist-relative & scale-invariant</td>
+                </tr>
+                <tr>
+                  <td>Browser Hardware Accelerator</td>
+                  <td>WebGL via TensorFlow.js</td>
+                </tr>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Bottom Panel: Sentence Builder & Output -->
+    <footer class="app-footer glass-card">
+      <div class="footer-control-row">
+        <div class="sentence-header">
+          <h3>Generated Output Text</h3>
+          <span class="active-word-pill">Current Sign: <strong id="active-char-preview">-</strong></span>
+        </div>
+        <div class="builder-actions">
+          <button id="speak-btn" class="btn btn-secondary">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="action-icon"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+            Speak Speech
+          </button>
+          <button id="backspace-btn" class="btn btn-secondary-outline">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="action-icon"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><line x1="18" y1="9" x2="12" y2="15"/><line x1="12" y1="9" x2="18" y2="15"/></svg>
+            Delete Last
+          </button>
+          <button id="clear-text-btn" class="btn btn-danger">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="action-icon"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+            Clear Text
+          </button>
+        </div>
+      </div>
+      
+      <div class="output-text-area" id="output-sentence" placeholder="Constructed text will appear here in real-time..."></div>
+    </footer>
+  </div>
+</body>
+</html>
