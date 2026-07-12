@@ -47,6 +47,9 @@ const trainingLossText = document.getElementById('training-loss-text');
 const trainModelBtn = document.getElementById('train-model-btn');
 const exportModelBtn = document.getElementById('export-model-btn');
 const customModelOption = document.getElementById('custom-model-option');
+const themeToggleBtn = document.getElementById('theme-toggle-btn');
+const themeSunIcon = document.getElementById('theme-sun-icon');
+const themeMoonIcon = document.getElementById('theme-moon-icon');
 
 // Inspector Elements
 const coordInspector = document.getElementById('coord-inspector');
@@ -81,6 +84,29 @@ let selectedTrainerLabelIndex = -1;
 
 // Initialize Web Speech Synthesis
 const synth = window.speechSynthesis;
+
+// Theme Toggle (Dark / Light Mode)
+const savedTheme = localStorage.getItem('theme') || 'dark';
+if (savedTheme === 'light') {
+  document.documentElement.setAttribute('data-theme', 'light');
+  themeSunIcon.style.display = 'none';
+  themeMoonIcon.style.display = 'block';
+}
+
+themeToggleBtn.addEventListener('click', () => {
+  const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+  if (currentTheme === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'light');
+    themeSunIcon.style.display = 'none';
+    themeMoonIcon.style.display = 'block';
+    localStorage.setItem('theme', 'light');
+  } else {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    themeSunIcon.style.display = 'block';
+    themeMoonIcon.style.display = 'none';
+    localStorage.setItem('theme', 'dark');
+  }
+});
 
 // -------------------------------------------------------------
 // 1. Tab Navigation & UI Controls Setup
