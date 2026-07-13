@@ -544,4 +544,26 @@ window.addEventListener('load', () => {
     .catch(err => {
       appendTerminalLog(`CRITICAL: Camera acquisition failed! ${err}`);
     });
+
+  // Automatically pull the existing custom dataset on startup if it exists
+  fetch('asl_custom_dataset.json')
+    .then(res => {
+      if (!res.ok) throw new Error("Dataset file not found on server");
+      return res.json();
+    })
+    .then(data => {
+      dataset = data;
+      customLabels = Object.keys(dataset);
+      activeLabel = customLabels[0] || null;
+      
+      updateLabelsList();
+      if (activeLabel) {
+        showRecorder(activeLabel);
+      }
+      appendTerminalLog(`Successfully synced dataset from repository. Loaded categories: [${customLabels.join(', ')}]`);
+    })
+    .catch(err => {
+      console.log("No existing dataset found on repository startup:", err.message);
+      appendTerminalLog("No existing custom dataset found in repository. Ready to record new tags.");
+    });
 });
