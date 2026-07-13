@@ -6,6 +6,7 @@ let lastHandLandmarks = null;
 let pretrainedWeights = null;
 let pretrainedModel = null;
 let coordsBuffer = [];
+let customModelInputShape = 2520; // Auto-detected from loaded models (supports 63, 126, and 2520 features)
 
 // UI Element Selectors
 const webcamElement = document.getElementById('webcam');
@@ -190,8 +191,18 @@ function fallbackSpeak(text) {
   synth.speak(utterance);
 }
 
+const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
 // Poll Virtual Mic connection state
 function checkVirtualMicConnection() {
+  if (!isLocalhost) {
+    virtualMicStatusText.textContent = 'LOCAL ONLY';
+    virtualMicStatusText.style.color = '#888888';
+    virtualMicToggle.checked = false;
+    virtualMicToggle.disabled = true;
+    return;
+  }
+  
   fetch('/api/devices')
     .then(res => {
       if (!res.ok) throw new Error("HTTP Error");
@@ -481,9 +492,14 @@ async function loadDeployedCustomModel() {
     customLabels = labels;
     tfModel = loadedModel;
     
+    // Auto-detect input shape from model layers!
+    if (loadedModel.inputs && loadedModel.inputs[0] && loadedModel.inputs[0].shape) {
+      customModelInputShape = loadedModel.inputs[0].shape[1] || 2520;
+    }
+    
     customModelOption.disabled = false;
     customModelOption.textContent = "Developer Custom Model (Model Loaded)";
-    console.log("Successfully loaded custom developer model.");
+    console.log(`Successfully loaded custom developer model (${customModelInputShape}-dim input).`);
     return true;
   } catch (err) {
     console.log("No custom developer model active on startup:", err.message);
@@ -908,15 +924,25 @@ function onResults(results) {
         };
       });
     } else if (activeModel === 'custom' && tfModel) {
-      // Run TensorFlow.js MLP Inference on 20-frame sequence (2520-dim)
-      if (coordsBuffer.length === 20) {
-        const flattenedSequence = [];
-        coordsBuffer.forEach(frame => {
-          flattenedSequence.push(...frame);
-        });
-        
+      // Run TensorFlow.js MLP Inference using dynamic input dimension mapping
+      let inputDataArray = null;
+      
+      if (customModelInputShape === 63) {
+        inputDataArray = flattened;
+      } else if (customModelInputShape === 126) {
+        inputDataArray = twoHandFeatures;
+      } else if (customModelInputShape === 2520) {
+        if (coordsBuffer.length === 20) {
+          inputDataArray = [];
+          coordsBuffer.forEach(frame => {
+            inputDataArray.push(...frame);
+          });
+        }
+      }
+      
+      if (inputDataArray) {
         tf.tidy(() => {
-          const inputTensor = tf.tensor2d([flattenedSequence]);
+          const inputTensor = tf.tensor2d([inputDataArray]);
           const output = tfModel.predict(inputTensor);
           const probabilities = output.dataSync();
           const maxProbIdx = output.argMax(-1).dataSync()[0];
