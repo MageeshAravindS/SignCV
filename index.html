@@ -27,7 +27,7 @@
     <!-- Header -->
     <header class="app-header">
       <div class="header-logo">
-        <span class="logo-icon">👋</span>
+        <img src="Logo.png" alt="SignCV Logo" class="logo-image">
         <div class="logo-text">
           <h1>SignCV</h1>
           <p>Real-Time Sign Language Recognition</p>
@@ -123,10 +123,11 @@
         <div class="tab-content active glass-card" id="recognition-tab">
           <h3>Recognition Controls</h3>
           <div class="control-grid">
-            <div class="control-item">
+            <div class="control-item" style="display: none;">
               <label for="model-selector">Classification Model</label>
               <select id="model-selector" class="custom-select">
                 <option value="similarity">Built-in Geometric Engine (ASL A-Z, 0-9)</option>
+                <option value="pretrained" id="pretrained-model-option" disabled>Pre-trained ASL Model (Loading...)</option>
                 <option value="custom" disabled id="custom-model-option">TensorFlow.js Custom MLP (Not trained)</option>
               </select>
             </div>
@@ -158,6 +159,32 @@
                 <span class="toggle-slider"></span>
                 <span class="toggle-label">Auto Spacing (Delay-based)</span>
               </label>
+            </div>
+
+            <div class="control-item">
+              <label class="toggle-container">
+                <input type="checkbox" id="word-rec-toggle" checked>
+                <span class="toggle-slider"></span>
+                <span class="toggle-label">Word Recognition <span class="beta-badge" style="background: var(--primary); color: #000; font-size: 0.62rem; padding: 2px 6px; border-radius: 3px; margin-left: 6px; font-weight: 800; vertical-align: middle;">BETA</span></span>
+              </label>
+            </div>
+
+            <div class="control-item">
+              <label class="toggle-container">
+                <input type="checkbox" id="virtual-mic-toggle">
+                <span class="toggle-slider"></span>
+                <span class="toggle-label">Route to Virtual Mic (VB-Cable)</span>
+              </label>
+            </div>
+
+            <div class="control-item" id="virtual-mic-status-container" style="border-top: 1px solid var(--border-glass); padding-top: 10px; margin-top: 5px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; font-weight: 700;">
+                <span style="color: var(--text-secondary); text-transform: uppercase;">Virtual Mic Status:</span>
+                <span id="virtual-mic-status-text" style="color: var(--danger); transition: all 0.3s ease;">NOT DETECTED</span>
+              </div>
+              <p style="font-size: 0.72rem; color: var(--text-muted); margin-top: 6px; line-height: 1.4;">
+                Requires VB-CABLE driver. <a href="https://vb-audio.com/Cable/" target="_blank" style="color: var(--primary); text-decoration: underline; transition: var(--transition-smooth);">Download here</a>, install, and restart server.
+              </p>
             </div>
           </div>
 

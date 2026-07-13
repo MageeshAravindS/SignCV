@@ -3,6 +3,9 @@ let handsEngine = null;
 let cameraHelper = null;
 let activeTab = 'recognition-tab';
 let lastHandLandmarks = null;
+let pretrainedWeights = null;
+let pretrainedModel = null;
+let coordsBuffer = [];
 
 // UI Element Selectors
 const webcamElement = document.getElementById('webcam');
@@ -47,6 +50,10 @@ const trainingLossText = document.getElementById('training-loss-text');
 const trainModelBtn = document.getElementById('train-model-btn');
 const exportModelBtn = document.getElementById('export-model-btn');
 const customModelOption = document.getElementById('custom-model-option');
+const pretrainedModelOption = document.getElementById('pretrained-model-option');
+const virtualMicToggle = document.getElementById('virtual-mic-toggle');
+const virtualMicStatusText = document.getElementById('virtual-mic-status-text');
+const wordRecToggle = document.getElementById('word-rec-toggle');
 const themeToggleBtn = document.getElementById('theme-toggle-btn');
 const themeSunIcon = document.getElementById('theme-sun-icon');
 const themeMoonIcon = document.getElementById('theme-moon-icon');
@@ -75,11 +82,12 @@ const NO_HAND_TIMEOUT = 45;  // 1.5 seconds of no hands to finalize word
 // Custom Gesture Trainer Data
 let customLabels = [];
 let customData = {
-  X: [], // normalized 63-dim features
+  X: [], // sequence coordinates
   y: []  // class indices
 };
 let tfModel = null;
 let isRecording = false;
+let tempRecordFrames = [];
 let selectedTrainerLabelIndex = -1;
 
 // Initialize Web Speech Synthesis
@@ -147,12 +155,85 @@ speakBtn.addEventListener('click', () => {
 });
 
 function speakText(text) {
+  if (!text || text.trim() === "") return;
+  
+  if (virtualMicToggle.checked) {
+    // Route TTS to python local server endpoint which streams to VB-Cable Channel
+    fetch('/api/speak', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ text })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (!data.success) {
+        console.error("Virtual Mic speech routing failed:", data.error);
+        fallbackSpeak(text);
+      }
+    })
+    .catch(err => {
+      console.error("Error calling Speak API:", err);
+      fallbackSpeak(text);
+    });
+  } else {
+    fallbackSpeak(text);
+  }
+}
+
+function fallbackSpeak(text) {
   if (!synth || synth.speaking) return;
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.rate = 1.0;
   utterance.pitch = 1.0;
   synth.speak(utterance);
 }
+
+// Poll Virtual Mic connection state
+function checkVirtualMicConnection() {
+  fetch('/api/devices')
+    .then(res => {
+      if (!res.ok) throw new Error("HTTP Error");
+      return res.json();
+    })
+    .then(data => {
+      if (data.connected) {
+        virtualMicStatusText.textContent = `CONNECTED`;
+        virtualMicStatusText.style.color = '#00d180'; // Hulu Green
+        virtualMicToggle.disabled = false;
+      } else {
+        virtualMicStatusText.textContent = 'NOT DETECTED';
+        virtualMicStatusText.style.color = '#cf0056'; // LG Red
+        virtualMicToggle.checked = false;
+        virtualMicToggle.disabled = true;
+        localStorage.setItem('virtualMicEnabled', 'false');
+      }
+    })
+    .catch(err => {
+      virtualMicStatusText.textContent = 'SERVER OFFLINE';
+      virtualMicStatusText.style.color = '#cf0056'; // LG Red
+      virtualMicToggle.checked = false;
+      virtualMicToggle.disabled = true;
+    });
+}
+
+// Persist user preferences
+virtualMicToggle.addEventListener('change', (e) => {
+  localStorage.setItem('virtualMicEnabled', e.target.checked ? 'true' : 'false');
+});
+
+wordRecToggle.addEventListener('change', async (e) => {
+  const isChecked = e.target.checked;
+  if (isChecked) {
+    // Dynamically query latest custom model in case it was just compiled in other tab
+    const loaded = await loadDeployedCustomModel();
+    modelSelector.value = loaded ? 'custom' : 'pretrained';
+  } else {
+    modelSelector.value = 'similarity';
+  }
+  localStorage.setItem('wordRecEnabled', isChecked ? 'true' : 'false');
+});
 
 // -------------------------------------------------------------
 // 2. Custom Gesture Trainer Logic (TensorFlow.js)
@@ -227,6 +308,7 @@ recordBtn.addEventListener('touchend', () => stopRecording());
 function startRecording() {
   if (selectedTrainerLabelIndex === -1) return;
   isRecording = true;
+  tempRecordFrames = [];
   recordBtn.textContent = "Recording...";
   recordBtn.style.backgroundColor = "var(--danger)";
 }
@@ -268,11 +350,11 @@ trainModelBtn.addEventListener('click', async () => {
   // One-hot encode targets
   const ys = tf.oneHot(tf.tensor1d(customData.y, 'int32'), customLabels.length);
   
-  // Define MLP Architecture
+  // Define MLP Architecture matching the sequence complexity
   tfModel = tf.sequential();
-  tfModel.add(tf.layers.dense({inputShape: [63], units: 64, activation: 'relu'}));
+  tfModel.add(tf.layers.dense({inputShape: [2520], units: 128, activation: 'relu'}));
   tfModel.add(tf.layers.dropout({rate: 0.1}));
-  tfModel.add(tf.layers.dense({units: 32, activation: 'relu'}));
+  tfModel.add(tf.layers.dense({units: 64, activation: 'relu'}));
   tfModel.add(tf.layers.dense({units: customLabels.length, activation: 'softmax'}));
   
   tfModel.compile({
@@ -306,6 +388,95 @@ trainModelBtn.addEventListener('click', async () => {
   xs.dispose();
   ys.dispose();
 });
+
+// Reconstruct Keras MLP Model structure using direct JSON weights
+function buildModelFromWeights(weightsData) {
+  const model = tf.sequential();
+  
+  // Layer 1: Dense (63 -> 128)
+  model.add(tf.layers.dense({
+    units: 128,
+    inputShape: [63],
+    activation: 'relu',
+    weights: [
+      tf.tensor2d(weightsData.dense.kernel),
+      tf.tensor1d(weightsData.dense.bias)
+    ]
+  }));
+  
+  // Layer 2: Dense (128 -> 64)
+  model.add(tf.layers.dense({
+    units: 64,
+    activation: 'relu',
+    weights: [
+      tf.tensor2d(weightsData.dense_1.kernel),
+      tf.tensor1d(weightsData.dense_1.bias)
+    ]
+  }));
+  
+  // Layer 3: Dense (64 -> 28)
+  model.add(tf.layers.dense({
+    units: 28,
+    activation: 'softmax',
+    weights: [
+      tf.tensor2d(weightsData.dense_2.kernel),
+      tf.tensor1d(weightsData.dense_2.bias)
+    ]
+  }));
+  
+  return model;
+}
+
+// Fetch and load pre-trained weights on startup
+fetch('asl_model_weights.json')
+  .then(res => {
+    if (!res.ok) throw new Error("File not found");
+    return res.json();
+  })
+  .then(data => {
+    pretrainedWeights = data;
+    pretrainedModel = buildModelFromWeights(data);
+    pretrainedModelOption.disabled = false;
+    pretrainedModelOption.textContent = "Pre-trained ASL Model (A-Z, Space, Del)";
+    // Default active model selection based on Word Recognition toggle preference
+    const wordRecEnabled = localStorage.getItem('wordRecEnabled') !== 'false';
+    if (wordRecEnabled) {
+      modelSelector.value = tfModel ? 'custom' : 'pretrained';
+    } else {
+      modelSelector.value = 'similarity';
+    }
+    console.log("Pre-trained ASL weights loaded and model compiled.");
+  })
+  .catch(err => {
+    console.error("Could not load pre-trained weights:", err);
+    pretrainedModelOption.textContent = "Pre-trained ASL Model (Load Error)";
+  });
+
+// Function to dynamically load the deployed developer custom sequence model
+async function loadDeployedCustomModel() {
+  try {
+    const labelsRes = await fetch('model/labels.json');
+    if (!labelsRes.ok) throw new Error("No custom model label map deployed");
+    const labels = await labelsRes.json();
+    
+    const loadedModel = await tf.loadLayersModel('model/model.json');
+    
+    // Assign to globals
+    customLabels = labels;
+    tfModel = loadedModel;
+    
+    customModelOption.disabled = false;
+    customModelOption.textContent = "Developer Custom Model (Model Loaded)";
+    console.log("Successfully loaded custom developer model.");
+    return true;
+  } catch (err) {
+    console.log("No custom developer model active on startup:", err.message);
+    return false;
+  }
+}
+
+// Initial load request
+loadDeployedCustomModel();
 
 // Export TF.js Model and Labels
 exportModelBtn.addEventListener('click', async () => {
@@ -365,6 +536,26 @@ function normalizeLandmarks(landmarks) {
   });
   
   return { flattened, rawNormalized: normalized, handSize };
+}
+
+function extractTwoHandFeatures(multiHandLandmarks, multiHandedness) {
+  let leftHandFeatures = Array(63).fill(0);
+  let rightHandFeatures = Array(63).fill(0);
+  
+  if (multiHandLandmarks && multiHandedness) {
+    for (let i = 0; i < multiHandLandmarks.length; i++) {
+      const handLabel = multiHandedness[i].label;
+      const landmarks = multiHandLandmarks[i];
+      const { flattened } = normalizeLandmarks(landmarks);
+      
+      if (handLabel === 'Left') {
+        leftHandFeatures = flattened;
+      } else if (handLabel === 'Right') {
+        rightHandFeatures = flattened;
+      }
+    }
+  }
+  return leftHandFeatures.concat(rightHandFeatures);
 }
 
 // Calculate 3D distance
@@ -550,10 +741,13 @@ function onResults(results) {
 
     // We process the first hand detected for predictions
     activeHandLandmarks = results.multiHandLandmarks[0] || null;
-    activeHandLabel = (results.multiHandedness && results.multiHandedness[0]) ? results.multiHandedness[0].label : "Right";
-
-    if (activeHandLabel === "Left") leftHandPill.classList.add('active');
-    else rightHandPill.classList.add('active');
+    
+    if (results.multiHandedness) {
+      results.multiHandedness.forEach(handedness => {
+        if (handedness.label === "Left") leftHandPill.classList.add('active');
+        if (handedness.label === "Right") rightHandPill.classList.add('active');
+      });
+    }
 
     // Inspect first 5 coordinates for layout
     updateCoordinateInspector(activeHandLandmarks);
@@ -565,36 +759,75 @@ function onResults(results) {
     }
   }
 
-  // 2. Gesture Prediction execution
-  if (handDetected && activeHandLandmarks) {
-    const { flattened, rawNormalized } = normalizeLandmarks(activeHandLandmarks);
+  // 2. Queue sequence frames
+  const twoHandFeatures = handDetected ? extractTwoHandFeatures(results.multiHandLandmarks, results.multiHandedness) : Array(126).fill(0);
+  coordsBuffer.push(twoHandFeatures);
+  if (coordsBuffer.length > 20) {
+    coordsBuffer.shift();
+  }
+
+  // 3. Gesture Prediction execution
+  if (handDetected) {
+    const { flattened, rawNormalized } = activeHandLandmarks ? normalizeLandmarks(activeHandLandmarks) : { flattened: Array(63).fill(0), rawNormalized: [] };
     
-    // If training is active, capture sample
+    // If training is active, capture sequence sample (matching sequence length of developer model)
     if (isRecording && selectedTrainerLabelIndex !== -1) {
-      customData.X.push(flattened);
-      customData.y.push(selectedTrainerLabelIndex);
-      updateSampleCounter();
+      tempRecordFrames.push(twoHandFeatures);
+      if (tempRecordFrames.length === 20) {
+        const flattenedSequence = [];
+        tempRecordFrames.forEach(frame => {
+          flattenedSequence.push(...frame);
+        });
+        customData.X.push(flattenedSequence);
+        customData.y.push(selectedTrainerLabelIndex);
+        updateSampleCounter();
+        
+        // Sliding window for collection data speed
+        tempRecordFrames = tempRecordFrames.slice(10);
+      }
     }
 
     const activeModel = modelSelector.value;
     let prediction = { label: 'None', confidence: 0.0 };
 
-    if (activeModel === 'similarity') {
+    if (activeModel === 'similarity' && activeHandLandmarks) {
       // Run Geometric Rules Engine
       prediction = classifyASL(activeHandLandmarks, rawNormalized);
-    } else if (activeModel === 'custom' && tfModel) {
-      // Run TensorFlow.js MLP Inference
+    } else if (activeModel === 'pretrained' && pretrainedModel) {
+      // Run pre-trained Keras model using direct Tensor weights (63-dim)
       tf.tidy(() => {
         const inputTensor = tf.tensor2d([flattened]);
-        const output = tfModel.predict(inputTensor);
+        const output = pretrainedModel.predict(inputTensor);
         const probabilities = output.dataSync();
         const maxProbIdx = output.argMax(-1).dataSync()[0];
         
+        const labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'del', 'space'];
+        
         prediction = {
-          label: customLabels[maxProbIdx],
+          label: labels[maxProbIdx],
           confidence: probabilities[maxProbIdx]
         };
       });
+    } else if (activeModel === 'custom' && tfModel) {
+      // Run TensorFlow.js MLP Inference on 20-frame sequence (2520-dim)
+      if (coordsBuffer.length === 20) {
+        const flattenedSequence = [];
+        coordsBuffer.forEach(frame => {
+          flattenedSequence.push(...frame);
+        });
+        
+        tf.tidy(() => {
+          const inputTensor = tf.tensor2d([flattenedSequence]);
+          const output = tfModel.predict(inputTensor);
+          const probabilities = output.dataSync();
+          const maxProbIdx = output.argMax(-1).dataSync()[0];
+          
+          prediction = {
+            label: customLabels[maxProbIdx],
+            confidence: probabilities[maxProbIdx]
+          };
+        });
+      }
     }
 
     const inferenceTime = Math.round(performance.now() - inferenceStartTime);
@@ -643,9 +876,28 @@ function onResults(results) {
         
         if (finalLabel === lastPredictedChar) {
           charStreakCount++;
-          if (charStreakCount === STREAK_THRESHOLD) {
-            appendCharacter(finalLabel);
-            charStreakCount = 0;
+          if (wordRecToggle.checked) {
+            if (charStreakCount === STREAK_THRESHOLD) {
+              appendCharacter(finalLabel);
+              charStreakCount = 0;
+            }
+          } else {
+            // Direct typing mode: fast letter typing on stable hold
+            const typingThreshold = Math.max(4, Math.round(STREAK_THRESHOLD * 0.6));
+            if (charStreakCount === typingThreshold) {
+              if (finalLabel === 'space') {
+                currentSentence += " ";
+                speakText("space");
+              } else if (finalLabel === 'del') {
+                currentSentence = currentSentence.slice(0, -1);
+                speakText("delete");
+              } else {
+                currentSentence += finalLabel;
+                speakText(finalLabel.toLowerCase());
+              }
+              outputSentenceDiv.textContent = currentSentence;
+              charStreakCount = 0;
+            }
           }
         } else {
           lastPredictedChar = finalLabel;
@@ -678,11 +930,60 @@ function onResults(results) {
 // 6. Sentence Builder Operations
 // -------------------------------------------------------------
 function appendCharacter(char) {
-  // If it's a numeric digit, treat as immediate input, else letters build words
-  if (/[0-9]/.test(char)) {
+  // If custom developer model is active, treat output label as a completed word
+  if (modelSelector.value === 'custom') {
+    if (char === 'space') {
+      if (currentSentence.length > 0 && !currentSentence.endsWith(" ")) {
+        currentSentence += " ";
+      }
+      outputSentenceDiv.textContent = currentSentence;
+      speakText("space");
+      return;
+    }
+    if (char === 'del') {
+      if (currentSentence.length > 0) {
+        const words = currentSentence.trimEnd().split(' ');
+        words.pop();
+        currentSentence = words.join(' ');
+        if (currentSentence.length > 0) {
+          currentSentence += " ";
+        }
+        outputSentenceDiv.textContent = currentSentence;
+      }
+      speakText("delete");
+      return;
+    }
     currentSentence += char + " ";
     outputSentenceDiv.textContent = currentSentence;
     speakText(char);
+    return;
+  }
+
+  // If it's a numeric digit, treat as immediate input, else letters build words
+
+  // Handle special characters from pre-trained model
+  if (char === 'space') {
+    if (currentWord.length > 0) {
+      currentSentence += currentWord + " ";
+      currentWord = "";
+    } else if (currentSentence.length > 0 && !currentSentence.endsWith(" ")) {
+      currentSentence += " ";
+    }
+    outputSentenceDiv.textContent = currentSentence;
+    speakText("space");
+    return;
+  }
+
+  if (char === 'del' || char === 'delete' || char === 'Backspace') {
+    if (currentWord.length > 0) {
+      currentWord = currentWord.slice(0, -1);
+      activeCharPreview.textContent = currentWord.slice(-1) || "-";
+      outputSentenceDiv.textContent = currentSentence + currentWord;
+    } else if (currentSentence.length > 0) {
+      currentSentence = currentSentence.trimEnd().slice(0, -1);
+      outputSentenceDiv.textContent = currentSentence;
+    }
+    speakText("delete");
     return;
   }
 
@@ -748,6 +1049,26 @@ function updateCoordinateInspector(landmarks) {
 // 8. Main Initialization
 // -------------------------------------------------------------
 window.addEventListener('load', () => {
+  // Load virtual mic & word recognition configurations
+  const virtualMicEnabled = localStorage.getItem('virtualMicEnabled') === 'true';
+  virtualMicToggle.checked = virtualMicEnabled;
+  
+  const wordRecEnabled = localStorage.getItem('wordRecEnabled') !== 'false'; // default true
+  wordRecToggle.checked = wordRecEnabled;
+  
+  // Try to load custom model on startup
+  loadDeployedCustomModel().then(loaded => {
+    if (wordRecEnabled) {
+      modelSelector.value = loaded ? 'custom' : 'pretrained';
+    } else {
+      modelSelector.value = 'similarity';
+    }
+  });
+  
+  // Start checking connection status
+  checkVirtualMicConnection();
+  setInterval(checkVirtualMicConnection, 5000);
+
   // Set up canvas default resolution
   canvasElement.width = 640;
   canvasElement.height = 480;

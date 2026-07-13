@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Developer Portal - SignCV Neural Net Deployer</title>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  
+  <!-- MediaPipe Hands CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  
+  <!-- TensorFlow.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest" crossorigin="anonymous"></script>
+  
+  <!-- Developer JS script -->
+  <script src="developer.js" defer></script>
+
+  <style>
+    :root {
+      --bg-dark: #07090e;
+      --bg-card: #0c101b;
+      --primary: #00ff66; /* Matrix green */
+      --primary-dim: rgba(0, 255, 102, 0.15);
+      --primary-border: rgba(0, 255, 102, 0.3);
+      --text-main: #d1ffd9;
+      --text-muted: #628c6a;
+      --danger: #ff3366;
+      --border-radius: 4px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: 'JetBrains Mono', monospace;
+      padding: 20px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    header {
+      border: 1px solid var(--primary-border);
+      background: var(--bg-card);
+      padding: 16px 24px;
+      border-radius: var(--border-radius);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    }
+
+    h1 {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 1.6rem;
+      letter-spacing: 0.05em;
+      color: var(--primary);
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .subtitle {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+      text-transform: uppercase;
+    }
+
+    .badge {
+      background: var(--primary-dim);
+      border: 1px solid var(--primary);
+      color: var(--primary);
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 0.7rem;
+      font-weight: bold;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 16px;
+      flex-grow: 1;
+    }
+
+    section {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .panel {
+      background: var(--bg-card);
+      border: 1px solid var(--primary-border);
+      border-radius: var(--border-radius);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .panel-title {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--primary);
+      border-bottom: 1px solid var(--primary-border);
+      padding-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .video-container {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4/3;
+      background: #000;
+      border: 1px solid #1c263d;
+      border-radius: var(--border-radius);
+      overflow: hidden;
+    }
+
+    video, canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    /* Terminal Output Log */
+    .terminal-box {
+      background: #04060b;
+      border: 1px solid #142036;
+      border-radius: var(--border-radius);
+      padding: 12px;
+      height: 160px;
+      overflow-y: auto;
+      font-size: 0.72rem;
+      line-height: 1.5;
+      color: var(--primary);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .log-line {
+      display: flex;
+      gap: 8px;
+    }
+
+    .log-time {
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .log-text {
+      word-break: break-all;
+    }
+
+    /* Input & Control elements */
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .cyber-input {
+      background: #04060b;
+      border: 1px solid #1c2e4f;
+      color: var(--text-main);
+      padding: 10px 12px;
+      border-radius: var(--border-radius);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      flex-grow: 1;
+      outline: none;
+      transition: border-color 0.3s;
+    }
+
+    .cyber-input:focus {
+      border-color: var(--primary);
+    }
+
+    .cyber-btn {
+      background: var(--primary-dim);
+      border: 1px solid var(--primary);
+      color: var(--primary);
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: bold;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 10px 18px;
+      border-radius: var(--border-radius);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+
+    .cyber-btn:hover:not(:disabled) {
+      background: var(--primary);
+      color: var(--bg-dark);
+      box-shadow: 0 0 10px var(--primary);
+    }
+
+    .cyber-btn:active:not(:disabled) {
+      transform: scale(0.98);
+    }
+
+    .cyber-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      border-color: var(--text-muted);
+      color: var(--text-muted);
+      background: transparent;
+    }
+
+    .cyber-btn-danger {
+      border-color: var(--danger);
+      color: var(--danger);
+      background: rgba(255, 51, 102, 0.1);
+    }
+
+    .cyber-btn-danger:hover:not(:disabled) {
+      background: var(--danger);
+      color: #fff;
+      box-shadow: 0 0 10px var(--danger);
+    }
+
+    /* Labels lists */
+    .labels-box {
+      background: #04060b;
+      border: 1px solid #142036;
+      border-radius: var(--border-radius);
+      padding: 10px;
+      max-height: 140px;
+      overflow-y: auto;
+    }
+
+    .labels-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .labels-list li {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      background: var(--bg-card);
+      border: 1px solid #1a273f;
+      border-radius: var(--border-radius);
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .labels-list li:hover {
+      border-color: var(--primary);
+    }
+
+    .labels-list li.selected {
+      background: var(--primary-dim);
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    .label-count {
+      font-weight: bold;
+      color: var(--primary);
+    }
+
+    /* Coordinate Streamer */
+    .stream-box {
+      background: #04060b;
+      border: 1px solid #142036;
+      border-radius: var(--border-radius);
+      padding: 12px;
+      flex-grow: 1;
+      font-size: 0.7rem;
+      overflow-y: auto;
+      max-height: 250px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      color: #6efca1;
+    }
+
+    .empty-note {
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    /* Recording controls layout */
+    .recording-hud {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 14px;
+      background: #04060b;
+      border: 1px solid #1c2e4f;
+      border-radius: var(--border-radius);
+      font-size: 0.8rem;
+    }
+
+    .recording-hud strong {
+      color: var(--primary);
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #1c2e4f;
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--primary);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div>
+      <h1>SignCV [Developer Portal]</h1>
+      <p class="subtitle">MLP Neural Network Classifier & Direct GitHub Deployer</p>
+    </div>
+    <div class="badge">SYS PRIVILEGES: ACTIVE</div>
+  </header>
+
+  <main>
+    <!-- Left column: Webcam & Coordinates -->
+    <section>
+      <div class="panel">
+        <div class="panel-title">
+          <span>Camera Stream Input</span>
+          <span style="font-size: 0.7rem; color: var(--text-muted);" id="fps-counter">FPS: 00</span>
+        </div>
+        
+        <div class="video-container">
+          <video id="webcam" autoplay playsinline style="display: none;"></video>
+          <canvas id="output-canvas"></canvas>
+        </div>
+      </div>
+
+      <div class="panel" style="flex-grow: 1;">
+        <div class="panel-title">Raw Coordinate Vector Stream [63 Float Fields]</div>
+        <div class="stream-box" id="coord-inspector">
+          <span class="empty-note">> Place hand in camera frame to intercept coordinate matrix streams...</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right column: Trainer, Logger, Actions -->
+    <section>
+      <div class="panel">
+        <div class="panel-title">1. Gesture Categories Manager</div>
+        
+        <div class="form-group">
+          <label for="new-gesture-name">New Gesture Tag</label>
+          <div class="input-row">
+            <input type="text" id="new-gesture-name" placeholder="e.g. YES" class="cyber-input">
+            <button id="add-gesture-btn" class="cyber-btn">Add Label</button>
+          </div>
+        </div>
+
+        <div class="labels-box">
+          <ul class="labels-list" id="gesture-labels-ul">
+            <li class="empty-note">No training labels active. Enter label tag above.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="panel" id="recorder-panel" style="display: none;">
+        <div class="panel-title">2. Keypoint Dataset Recorder</div>
+        
+        <div class="recording-hud">
+          <span>Target Label: <strong id="recording-active-label">-</strong></span>
+          <span>Samples Saved: <strong id="recorded-samples-count">0</strong></span>
+        </div>
+        
+        <div class="input-row">
+          <button id="record-btn" class="cyber-btn" style="flex: 1.5; user-select: none;">Record Sample (Hold)</button>
+          <button id="clear-samples-btn" class="cyber-btn cyber-btn-danger" style="flex: 1;">Clear Dataset</button>
+        </div>
+
+        <div class="input-row" style="margin-top: 8px;">
+          <button id="export-dataset-btn" class="cyber-btn" style="flex: 1; font-size: 0.7rem;">Export Data</button>
+          <button id="import-dataset-trigger-btn" class="cyber-btn" style="flex: 1; font-size: 0.7rem;">Import Data</button>
+          <input type="file" id="import-dataset-file" accept=".json" style="display: none;">
+        </div>
+
+        <button id="push-dataset-btn" class="cyber-btn" style="width: 100%; margin-top: 8px; font-size: 0.72rem; border-color: #ffa502; color: #ffa502; background: rgba(255, 165, 2, 0.1);" disabled>
+          Push Dataset to GitHub (git push data)
+        </button>
+      </div>
+
+      <div class="panel" style="flex-grow: 1;">
+        <div class="panel-title">3. Model Training & Deploy Pipeline</div>
+        
+        <button id="train-model-btn" class="cyber-btn" disabled style="width: 100%;">
+          Train & Deploy Model (git push main)
+        </button>
+
+        <div class="terminal-box" id="terminal-log">
+          <div class="log-line">
+            <span class="log-time">[00:00:00]</span>
+            <span class="log-text">SYSTEM ROOT ONLINE. Ready to stream keypoint matrices...</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+</body>
+</html>
