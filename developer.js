@@ -195,15 +195,26 @@ importDatasetFile.addEventListener('change', (e) => {
       }
       if (!valid) throw new Error("File must be a JSON object containing coordinate arrays.");
       
-      dataset = importedData;
-      customLabels = Object.keys(dataset);
-      activeLabel = customLabels[0] || null;
+      // Merge / append instead of overwrite!
+      let newCount = 0;
+      for (const k in importedData) {
+        if (!dataset[k]) {
+          dataset[k] = [];
+          customLabels.push(k);
+        }
+        const initialLen = dataset[k].length;
+        importedData[k].forEach(sample => {
+          dataset[k].push(sample);
+        });
+        newCount += (dataset[k].length - initialLen);
+      }
       
+      activeLabel = customLabels[0] || null;
       updateLabelsList();
       if (activeLabel) {
         showRecorder(activeLabel);
       }
-      appendTerminalLog(`Successfully imported dataset. Categories loaded: [${customLabels.join(', ')}]`);
+      appendTerminalLog(`Successfully merged dataset! Appended ${newCount} samples across categories [${Object.keys(importedData).join(', ')}]`);
       pushDatasetBtn.disabled = false;
     } catch (err) {
       appendTerminalLog("Error parsing dataset JSON: " + err.message);
