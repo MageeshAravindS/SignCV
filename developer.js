@@ -224,6 +224,12 @@ importDatasetFile.addEventListener('change', (e) => {
 });
 
 pushDatasetBtn.addEventListener('click', async () => {
+  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    appendTerminalLog("PUSH BLOCKED: Git push operations require the local Python server. Please open the page locally.");
+    alert("Error: Pushing datasets directly from GitHub Pages is not supported. Please run the server locally ('python server.py') to sync datasets.");
+    return;
+  }
+
   pushDatasetBtn.disabled = true;
   appendTerminalLog("Uploading current dataset JSON to local server...");
   
@@ -254,6 +260,25 @@ clearSamplesBtn.addEventListener('click', () => {
   recordedSamplesCount.textContent = 0;
   appendTerminalLog(`Cleared all recorded samples for category: "${activeLabel}"`);
   updateLabelsList();
+});
+
+const deleteTagBtn = document.getElementById('delete-tag-btn');
+deleteTagBtn.addEventListener('click', () => {
+  if (!activeLabel) return;
+  const labelToDelete = activeLabel;
+  if (confirm(`Are you sure you want to delete the word category "${labelToDelete}" and all of its samples?`)) {
+    delete dataset[labelToDelete];
+    customLabels = customLabels.filter(l => l !== labelToDelete);
+    activeLabel = customLabels[0] || null;
+    
+    updateLabelsList();
+    if (activeLabel) {
+      showRecorder(activeLabel);
+    } else {
+      recorderPanel.style.display = 'none';
+    }
+    appendTerminalLog(`Successfully deleted category tag: "${labelToDelete}"`);
+  }
 });
 
 // -------------------------------------------------------------
@@ -336,6 +361,11 @@ function dist3D(pt1, pt2) {
 // MLP Trainer and Serializer
 // -------------------------------------------------------------
 trainModelBtn.addEventListener('click', async () => {
+  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    appendTerminalLog("DEPLOY BLOCKED: Model compilation and Git deployment require the local Python server. Please open the page locally.");
+    alert("Error: Model deployment from GitHub Pages is not supported. Please run the server locally ('python server.py') to push updates.");
+    return;
+  }
   trainModelBtn.disabled = true;
   appendTerminalLog(`Initiating TensorFlow.js custom MLP network compiler...`);
   
