@@ -227,7 +227,12 @@ wordRecToggle.addEventListener('change', async (e) => {
   const isChecked = e.target.checked;
   if (isChecked) {
     // Dynamically query latest custom model in case it was just compiled in other tab
-    const loaded = await loadDeployedCustomModel();
+    let loaded = await loadDeployedCustomModel();
+    if (!loaded && !tfModel) {
+      customModelOption.textContent = "Training Model...";
+      await autoTrainFromDataset();
+      loaded = tfModel !== null;
+    }
     modelSelector.value = loaded ? 'custom' : 'pretrained';
   } else {
     modelSelector.value = 'similarity';
@@ -487,7 +492,90 @@ async function loadDeployedCustomModel() {
 }
 
 // Initial load request
-loadDeployedCustomModel();
+// Function to fetch the dataset JSON and train the custom model dynamically in the browser
+async function autoTrainFromDataset() {
+  try {
+    const res = await fetch('asl_custom_dataset.json');
+    if (!res.ok) throw new Error("No custom dataset found on server");
+    const datasetData = await res.json();
+    
+    const labels = Object.keys(datasetData);
+    if (labels.length < 2) return;
+    
+    console.log("Auto-training background model using dataset categories:", labels);
+    
+    const inputData = [];
+    const outputData = [];
+    
+    labels.forEach((label, index) => {
+      datasetData[label].forEach(features => {
+        if (features.length === 2520) {
+          inputData.push(features);
+          const oneHot = Array(labels.length).fill(0);
+          oneHot[index] = 1;
+          outputData.push(oneHot);
+        }
+      });
+    });
+    
+    if (inputData.length === 0) return;
+    
+    const xs = tf.tensor2d(inputData);
+    const ys = tf.tensor2d(outputData);
+    
+    const model = tf.sequential();
+    model.add(tf.layers.dense({
+      units: 128,
+      activation: 'relu',
+      inputShape: [2520]
+    }));
+    model.add(tf.layers.dropout({rate: 0.1}));
+    model.add(tf.layers.dense({
+      units: 64,
+      activation: 'relu'
+    }));
+    model.add(tf.layers.dense({
+      units: labels.length,
+      activation: 'softmax'
+    }));
+    
+    model.compile({
+      optimizer: tf.train.adam(0.005),
+      loss: 'categoricalCrossentropy',
+      metrics: ['accuracy']
+    });
+    
+    await model.fit(xs, ys, {
+      epochs: 35,
+      batchSize: 16,
+      verbose: 0
+    });
+    
+    // Assign to globals
+    customLabels = labels;
+    tfModel = model;
+    
+    customModelOption.disabled = false;
+    customModelOption.textContent = "Developer Custom Model (Model Ready)";
+    
+    if (wordRecToggle.checked) {
+      modelSelector.value = "custom";
+    }
+    
+    console.log("Background auto-training completed successfully. Custom sequence model active.");
+    xs.dispose();
+    ys.dispose();
+  } catch (err) {
+    console.log("Dataset auto-training bypass:", err.message);
+  }
+}
+
+// Initial load request
+loadDeployedCustomModel().then(loaded => {
+  if (!loaded) {
+    autoTrainFromDataset();
+  }
+});
 
 // Export TF.js Model and Labels
 exportModelBtn.addEventListener('click', async () => {
@@ -1067,8 +1155,12 @@ window.addEventListener('load', () => {
   const wordRecEnabled = localStorage.getItem('wordRecEnabled') !== 'false'; // default true
   wordRecToggle.checked = wordRecEnabled;
   
-  // Try to load custom model on startup
-  loadDeployedCustomModel().then(loaded => {
+  // Try to load custom model on startup, fallback to auto-training from dataset if not deployed
+  loadDeployedCustomModel().then(async (loaded) => {
+    if (!loaded) {
+      await autoTrainFromDataset();
+      loaded = tfModel !== null;
+    }
     if (wordRecEnabled) {
       modelSelector.value = loaded ? 'custom' : 'pretrained';
     } else {
