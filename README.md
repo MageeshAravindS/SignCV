@@ -80,6 +80,34 @@ This script starts a local web server (on port `8000`) and automatically opens y
 
 ---
 
+## Virtual Audio Driver Integration (Zoom, Discord, Teams)
+
+This system features a built-in **Virtual Audio Routing** channel. When enabled, your sign-to-speech output is sent directly into a Virtual Microphone input rather than your local speakers. This allows you to "speak" with sign language inside meeting and call software like Zoom, Microsoft Teams, Discord, Google Meet, and Skype.
+
+### Step 1: Install VB-CABLE Driver
+1. Download the free virtual audio cable driver: **[VB-CABLE Driver Download](https://vb-audio.com/Cable/)**.
+2. Extract the downloaded folder on Windows.
+3. Right-click `VBCABLE_Setup_x64.exe` and select **Run as administrator**.
+4. Click **Install Driver**.
+5. Restart your PC to finalize driver registry configurations.
+
+### Step 2: Configure & Launch SignCV
+1. Run the local Python server:
+   ```bash
+   python server.py
+   ```
+2. Navigate to `http://localhost:8000`. Under Settings, you should now see:
+   * **Virtual Mic Status**: `CONNECTED` (green)
+3. Turn **ON** the checkbox toggle **Route to Virtual Mic (VB-Cable)**.
+
+### Step 3: Choose Input inside Zoom/Discord/Teams
+1. Open your meeting application (e.g. Discord, Zoom, or Teams).
+2. Go to **Audio Settings / Input Device**.
+3. Select **CABLE Output (VB-Audio Virtual Cable)** as your default microphone input.
+4. Set your webcam in the meeting app. Now, when you perform signs on the SignCV viewfinder, the synthesized speech output will stream directly into the meeting call as your live microphone voice!
+
+---
+
 ## Python Deep Learning Pipeline
 
 For offline developers who want to train and evaluate custom neural networks.
