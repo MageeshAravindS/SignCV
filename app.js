@@ -235,6 +235,17 @@ wordRecToggle.addEventListener('change', async (e) => {
   localStorage.setItem('wordRecEnabled', isChecked ? 'true' : 'false');
 });
 
+modelSelector.addEventListener('change', (e) => {
+  const val = e.target.value;
+  if (val === 'custom' || val === 'pretrained') {
+    wordRecToggle.checked = true;
+    localStorage.setItem('wordRecEnabled', 'true');
+  } else {
+    wordRecToggle.checked = false;
+    localStorage.setItem('wordRecEnabled', 'false');
+  }
+});
+
 // -------------------------------------------------------------
 // 2. Custom Gesture Trainer Logic (TensorFlow.js)
 // -------------------------------------------------------------
